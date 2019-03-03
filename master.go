@@ -3,7 +3,6 @@ package graceful
 import (
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -33,14 +32,12 @@ func (m *master) run() error {
 	// init fds
 	err := m.initFDs()
 	if err != nil {
-		m.Unlock()
 		return err
 	}
 
 	// fork worker
 	pid, err := m.forkWorker()
 	if err != nil {
-		m.Unlock()
 		return err
 	}
 	m.workerPid = pid
@@ -49,6 +46,18 @@ func (m *master) run() error {
 	// wait signal
 	m.waitSignal()
 	return nil
+}
+
+func (m *master) waitWorker() {
+	for {
+		select {
+		case <-m.workerExit:
+			atomic.AddInt32(&m.livingWorkerNum, -1)
+			if m.livingWorkerNum <= 0 { // all workers exit
+				m.stop()
+			}
+		}
+	}
 }
 
 func (m *master) waitSignal() {
@@ -64,15 +73,10 @@ func (m *master) waitSignal() {
 	for {
 		var sig os.Signal
 		select {
-		case err := <-m.workerExit:
-			if _, ok := err.(*exec.ExitError); ok {
-				log.Printf("worker exit with error: %+v, master is going to shutdown.", err)
-				m.stop()
-				return
-			}
+		case <-m.workerExit:
 			atomic.AddInt32(&m.livingWorkerNum, -1)
 			if m.livingWorkerNum <= 0 {
-				log.Printf("all workers exit, master is going to shutdown.")
+				log.Printf("all workers exit, master shutdown")
 				m.stop()
 				return
 			}
@@ -118,17 +122,9 @@ func (m *master) stop() {
 func (m *master) initFDs() error {
 	m.extraFiles = make([]*os.File, 0, len(m.addrs))
 	for _, addr := range m.addrs {
-		a, err := net.ResolveTCPAddr("tcp", addr)
-		if err != nil {
-			return fmt.Errorf("invalid address %s (%s)", addr, err)
-		}
-		l, err := net.ListenTCP("tcp", a)
+		l, f, err := CreateListenerFile(addr)
 		if err != nil {
 			return err
-		}
-		f, err := l.File()
-		if err != nil {
-			return fmt.Errorf("failed to retreive fd for: %s (%s)", addr, err)
 		}
 		if err := l.Close(); err != nil {
 			return fmt.Errorf("failed to close listener for: %s (%s)", addr, err)

@@ -19,14 +19,18 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	graceful.ListenAndServe(":9222", &handler{})
+	// graceful.ListenAndServe(":9222", &handler{})
+	listenMultiAddrs()
 }
 
 func listenMultiAddrs() {
 	server := graceful.NewServer()
-	server.Register("0.0.0.0:9223", &handler{})
-	server.Register("0.0.0.0:9224", &handler{})
-	server.Register("0.0.0.0:9225", &handler{})
+	// server.Register("0.0.0.0:9223", &handler{})
+	// server.Register("0.0.0.0:9224", &handler{})
+	// server.Register("0.0.0.0:9225", &handler{})
+
+	server.Register("unix:///tmp/graceful.sock", &handler{})
+
 	err := server.Run()
 	fmt.Printf("error: %v\n", err)
 }
